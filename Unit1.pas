@@ -133,8 +133,11 @@ type
     procedure CheckDataBase;
     function DataBaseExists(DBName: string): boolean;
     procedure ExecuteScriptFromFile(aFileName: string);
+    procedure ExecuteSQL(aSQL: string);
+    function OpenSQL(aSQL: string): TADOQuery;
 
-    function CreateMainQuery: string;
+    function CheckActualDate: boolean;
+    procedure ReCreateMainQuery;
 
     procedure TreeDragTo(DragGUID, DropGUID: TGUID);
 
@@ -177,8 +180,8 @@ end;
 
 function ConnectToIniFile(aIniFileName: string): TIniFile;
 begin
-// Проверка на наличие файла в текущем каталоге и при необходимости смена пути
-// (по умолчанию на 2 уровня назад, исключается "Win32\Debug")
+// Проверка на наличие файла в текущем каталоге и при необходимости
+// смена пути на 2 уровня назад, исключается "Win32\Debug"
   if not FileExists(aIniFileName) then aIniFileName := '..\..\'+aIniFileName;
   Result := TIniFile.Create(aIniFileName);
 end;
@@ -304,46 +307,56 @@ begin
   end;
 end;
 
+procedure TForm1.ExecuteSQL(aSQL: string);
+var
+  TempQuery: TADOQuery;
+begin
+  TempQuery := TADOQuery.Create(Self);
+  TempQuery.Connection := DataModule2.DB;
+  try
+//    TempQuery.Close;
+//    TempQuery.SQL.Clear;
+    TempQuery.SQL.Add(aSQL);
+    TempQuery.ExecSQL;
+  finally
+    TempQuery.Free
+  end;
+end;
+
+function TForm1.OpenSQL(aSQL: string): TADOQuery;
+begin
+  Result := TADOQuery.Create(Self);
+  Result.Connection := DataModule2.DB;
+
+//  Result.Close;
+//  Result.SQL.Clear;
+  Result.SQL.Add(aSQL);
+  Result.Open;
+end;
+
 procedure TForm1.TreeDragTo(DragGUID, DropGUID: TGUID);
 var
   NewGUID: TGUID;
-  TempQuery, TempDataSet: TADOQuery;
 begin
 // Рекурсивная процедура "перемещения" записей
-  TempQuery := TADOQuery.Create(Self);
-  TempQuery.Connection := DataModule2.DB;
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
-  try
 // Устанавливаем дату окончания для переносимого объекта
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    TempQuery.SQL.Add(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(DragGUID)]));
-    TempQuery.ExecSQL;
+  ExecuteSQL(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(DragGUID)]));
 
 // Добавляем новый объект к требуемому владельцу
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    CreateGUID(NewGUID);
-    TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) '+
-                             'SELECT ''%s'', ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
-                             [GUIDToString(NewGUID), GUIDToString(DropGUID), GUIDToString(DragGUID)]));
-    TempQuery.ExecSQL;
+  CreateGUID(NewGUID);
+  ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) '+
+                    '  SELECT ''%s'', ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
+                    [GUIDToString(NewGUID), GUIDToString(DropGUID), GUIDToString(DragGUID)]));
 
 // Добавляем дочерние объекты которые были у переносимого объекта
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(DragGUID)]));
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
+  with OpenSQL(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(DragGUID)])) do
+  while not EOF do
+  try
 // Рекурсия по всем дочерним объектам
-      TreeDragTo((TempDataSet.FieldByName('GUID') as TGUIDField).AsGuid, NewGUID);
-      TempDataSet.Next;
-    end;
+    TreeDragTo((FieldByName('GUID') as TGUIDField).AsGuid, NewGUID);
+    Next;
   finally
-    TempQuery.Free;
-    TempDataSet.Free;
+    Free;
   end;
 
 // Обновление дерева
@@ -353,43 +366,26 @@ end;
 procedure TForm1.TreeMoveTo(FromGUID, ToGUID, NewGUID: TGUID);
 var
   NewChildGUID: TGUID;
-  TempQuery, TempDataSet: TADOQuery;
 begin
 // Рекурсивная процедура "перемещения" записей
-  TempQuery := TADOQuery.Create(Self);
-  TempQuery.Connection := DataModule2.DB;
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
-  try
 // Устанавливаем дату окончания для переносимого объекта
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    TempQuery.SQL.Add(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(FromGUID)]));
-    TempQuery.ExecSQL;
+  ExecuteSQL(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(FromGUID)]));
 
 // Добавляем новый объект к требуемому владельцу
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) '+
-                             'SELECT ''%s'', ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
-                             [GUIDToString(NewGUID), GUIDToString(ToGUID), GUIDToString(FromGUID)]));
-    TempQuery.ExecSQL;
+  ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) '+
+                    '  SELECT ''%s'', ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
+                    [GUIDToString(NewGUID), GUIDToString(ToGUID), GUIDToString(FromGUID)]));
 
 // Добавляем дочерние объекты которые были у переносимого объекта
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(FromGUID)]));
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
+  with OpenSQL(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(FromGUID)])) do
+  while not EOF do
+  try
 // Рекурсия по всем дочерним объектам
-      CreateGUID(NewChildGUID);
-      TreeMoveTo((TempDataSet.FieldByName('GUID') as TGUIDField).AsGuid, NewGUID, NewChildGUID);
-      TempDataSet.Next;
-    end;
+    CreateGUID(NewChildGUID);
+    TreeMoveTo((FieldByName('GUID') as TGUIDField).AsGuid, NewGUID, NewChildGUID);
+    Next;
   finally
-    TempQuery.Free;
-    TempDataSet.Free;
+    Free;
   end;
 
 // Обновление дерева
@@ -399,43 +395,26 @@ end;
 procedure TForm1.TreeMoveTo(FromGUID, NewGUID: TGUID);
 var
   NewChildGUID: TGUID;
-  TempQuery, TempDataSet: TADOQuery;
 begin
 // Рекурсивная процедура "перемещения" записей
-  TempQuery := TADOQuery.Create(Self);
-  TempQuery.Connection := DataModule2.DB;
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
-  try
 // Устанавливаем дату окончания для переносимого объекта
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    TempQuery.SQL.Add(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(FromGUID)]));
-    TempQuery.ExecSQL;
+  ExecuteSQL(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(FromGUID)]));
 
 // Добавляем новый объект к требуемому владельцу
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) '+
-                             'SELECT ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
-                             [GUIDToString(NewGUID), GUIDToString(FromGUID)]));
-    TempQuery.ExecSQL;
+  ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) '+
+                    '  SELECT ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
+                    [GUIDToString(NewGUID), GUIDToString(FromGUID)]));
 
 // Добавляем дочерние объекты которые были у переносимого объекта
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(FromGUID)]));
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
+  with OpenSQL(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(FromGUID)])) do
+  while not EOF do
+  try
 // Рекурсия по всем дочерним объектам
-      CreateGUID(NewChildGUID);
-      TreeMoveTo((TempDataSet.FieldByName('GUID') as TGUIDField).AsGuid, NewGUID, NewChildGUID);
-      TempDataSet.Next;
-    end;
+    CreateGUID(NewChildGUID);
+    TreeMoveTo((FieldByName('GUID') as TGUIDField).AsGuid, NewGUID, NewChildGUID);
+    Next;
   finally
-    TempQuery.Free;
-    TempDataSet.Free;
+    Free;
   end;
 
 // Обновление дерева
@@ -443,36 +422,20 @@ begin
 end;
 
 procedure TForm1.TreeDelete(DeleteGUID: TGUID);
-var
-  TempQuery, TempDataSet: TADOQuery;
 begin
 // Рекурсивная процедура "удаления" записей
-  TempQuery := TADOQuery.Create(Self);
-  TempQuery.Connection := DataModule2.DB;
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
-  try
 // Устанавливаем дату окончания для "удаляемого" объекта
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    TempQuery.SQL.Add(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(DeleteGUID)]));
-    TempQuery.ExecSQL;
+  ExecuteSQL(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(DeleteGUID)]));
 
 // Удаляем дочерние объекты которые были у "удаляемого" объекта
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(DeleteGUID)]));
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
+  with OpenSQL(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NULL', [GUIDToString(DeleteGUID)])) do
+  while not EOF do
+  try
 // Рекурсия по всем дочерним объектам
-      TreeDelete((TempDataSet.FieldByName('GUID') as TGUIDField).AsGuid);
-      TempDataSet.Next;
-    end;
-
+    TreeDelete((FieldByName('GUID') as TGUIDField).AsGuid);
+    Next;
   finally
-    TempQuery.Free;
-    TempDataSet.Free;
+    Free;
   end;
 
 // Обновление дерева
@@ -482,39 +445,25 @@ end;
 procedure TForm1.TreeRestore(RestoreGUID: TGUID; RestoreLevel: integer; RestoreName: string);
 var
   aNewGUID: TGUID;
-  TempQuery, TempDataSet: TADOQuery;
 begin
 // Рекурсивная процедура "восстановления" записей
-  TempQuery := TADOQuery.Create(Self);
-  TempQuery.Connection := DataModule2.DB;
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
-  try
 // Удаляем дату окончания для "восстанавливаемого" объекта
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    CreateGUID(aNewGUID);
-    TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'')',
-      [GUIDToString(aNewGUID), IntToStr(RestoreLevel), RestoreName]));
-    TempQuery.ExecSQL;
+  CreateGUID(aNewGUID);
+  ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'')',
+             [GUIDToString(aNewGUID), IntToStr(RestoreLevel), RestoreName]));
 
 // Восстанавливаем дочерние объекты которые были у "удаленного" объекта
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NOT NULL', [GUIDToString(RestoreGUID)]));
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
+  with OpenSQL(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NOT NULL', [GUIDToString(RestoreGUID)])) do
+  while not EOF do
+  try
 // Рекурсия по всем дочерним объектам
-      TreeRestore(aNewGuid,
-                  (TempDataSet.FieldByName('GUID') as TGUIDField).AsGuid,
-                  TempDataSet.FieldByName('Level').AsInteger,
-                  TempDataSet.FieldByName('Name').AsString);
-      TempDataSet.Next;
-    end;
+    TreeRestore(aNewGuid,
+                (FieldByName('GUID') as TGUIDField).AsGuid,
+                FieldByName('Level').AsInteger,
+                FieldByName('Name').AsString);
+    Next;
   finally
-    TempQuery.Free;
-    TempDataSet.Free;
+    Free;
   end;
 
 // Обновление дерева
@@ -524,39 +473,25 @@ end;
 procedure TForm1.TreeRestore(RestoreGUID, RestoreGUID_Parent: TGUID; RestoreLevel: integer; RestoreName: string);
 var
   aNewGUID: TGUID;
-  TempQuery, TempDataSet: TADOQuery;
 begin
 // Рекурсивная процедура "восстановления" записей
-  TempQuery := TADOQuery.Create(Self);
-  TempQuery.Connection := DataModule2.DB;
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
-  try
 // Удаляем дату окончания для удаляемого объекта
-    TempQuery.Close;
-    TempQuery.SQL.Clear;
-    CreateGUID(aNewGUID);
-    TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'', ''%s'')',
-      [GUIDToString(aNewGUID), GUIDToString(RestoreGUID), IntToStr(RestoreLevel), RestoreName]));
-    TempQuery.ExecSQL;
+  CreateGUID(aNewGUID);
+  ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'', ''%s'')',
+             [GUIDToString(aNewGUID), GUIDToString(RestoreGUID), IntToStr(RestoreLevel), RestoreName]));
 
 // Восстанавливаем дочерние объекты которые были у удаленного объекта
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NOT NULL', [GUIDToString(RestoreGUID_Parent)]));
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
+  with OpenSQL(Format('SELECT * FROM _OBJECTS WHERE GUID_PARENT = ''%s'' AND DATEEXPIRED IS NOT NULL', [GUIDToString(RestoreGUID_Parent)])) do
+  while not EOF do
+  try
 // Рекурсия по всем дочерним объектам
-      TreeRestore(aNewGuid,
-                  (TempDataSet.FieldByName('GUID') as TGUIDField).AsGuid,
-                  TempDataSet.FieldByName('LEVEL').AsInteger,
-                  TempDataSet.FieldByName('NAME').AsString);
-      TempDataSet.Next;
-    end;
+    TreeRestore(aNewGuid,
+                (FieldByName('GUID') as TGUIDField).AsGuid,
+                FieldByName('LEVEL').AsInteger,
+                FieldByName('NAME').AsString);
+    Next;
   finally
-    TempQuery.Free;
-    TempDataSet.Free;
+    Free;
   end;
 
 // Обновление дерева
@@ -569,29 +504,31 @@ begin
   ShowAboutForm;
 end;
 
-function TForm1.CreateMainQuery: string;
+procedure TForm1.ReCreateMainQuery;
+var
+  aSQL: string;
 begin
 // Формирование главного запроса
-  Result :=
-    'select o.id, o.guid, o.guid_parent, '+
-    '  o.level, l.name as level_name, o.name, o.datestart, '+
-    '  o.dateexpired, '+
-//    '  case when o.dateexpired > '''+FormatDateTime('MM.dd.yyyy', ActualDate.Date)+''' then null else o.dateexpired end as dateexpired, '+
-    '  o.updated '+
+  aSQL :=
+    'select o.id, o.guid, o.guid_parent, o.level, l.name as level_name, o.name, o.datestart, o.dateexpired, o.updated '+
     'from _objects o '+
     'left join _levels l on l.id = o.level '+
-// В режиме показа "удаленных записей" показывать все удаленные
     'where '''+FormatDateTime('MM.dd.yyyy', ActualDate.Date)+''' >= DATESTART ';
-//    '  and ((dateexpired is null) or ('''+FormatDateTime('MM.dd.yyyy', ActualDate.Date)+''' <= dateexpired)) '+
-//    IIF(not ShowDeletedAction.Checked, 'and dateexpired is null ', ' ')+
 
   if not ShowDeletedAction.Checked then
-    Result := Result +
+    aSQL := aSQL +
       '  and ((dateexpired is null) or ('''+FormatDateTime('MM.dd.yyyy', ActualDate.Date)+''' <= dateexpired)) ';
-//      IIF(not ShowDeletedAction.Checked, 'and dateexpired is null ', ' ')
 
-  Result := Result +
+  aSQL := aSQL +
     'order by o.level, o.name';
+
+  with DataModule2.Main do
+  begin
+    Close;
+    SQL.Clear;
+    SQL.Add(aSQL);
+    Open;
+  end;
 end;
 
 procedure TForm1.ShowDeletedActionExecute(Sender: TObject);
@@ -605,10 +542,7 @@ begin
   if Assigned(TreeList.DataController.DataSet) then
     ID := TreeList.DataController.DataSet.FieldByName('ID').Value;
 
-  DataModule2.Main.Close;
-  DataModule2.Main.SQL.Clear;
-  DataModule2.Main.SQL.Add(CreateMainQuery);
-  DataModule2.Main.Open;
+  ReCreateMainQuery;
 
 // Обновление дерева
   TreeListReOpen(TreeList, 'ID', ID);
@@ -639,13 +573,17 @@ begin
   if Assigned(TreeList.DataController.DataSet) then
     ID := IIF(VarIsNull(TreeList.DataController.DataSet.FieldByName('ID').Value), 0, TreeList.DataController.DataSet.FieldByName('ID').Value);
 
-  DataModule2.Main.Close;
-  DataModule2.Main.SQL.Clear;
-  DataModule2.Main.SQL.Add(CreateMainQuery);
-  DataModule2.Main.Open;
+  ReCreateMainQuery;
 
 // Обновление дерева
   TreeListReOpen(TreeList, 'ID', ID);
+end;
+
+function TForm1.CheckActualDate: boolean;
+begin
+  Result := ActualDate.Date >= Trunc(Now);
+  if not Result then
+    MessageDlg('Актуальная дата меньше текущей.'+#13#10+'Изменения запрещены!', mtError, [mbCancel], 0);
 end;
 
 procedure TForm1.AddActionExecute(Sender: TObject);
@@ -653,16 +591,11 @@ var
   aGUID: TGUID;
   aLevel: integer;
   aNewName: string;
-  TempQuery: TADOQuery;
 begin
 // Экшн "Добавление объекта в текущий уровень"
 
 // Нельзя изменять, если актуальная дата меньше текущей
-  if (ActualDate.Date < Trunc(Now)) then
-  begin
-    MessageDlg('Актуальная дата меньше текущей.'+#13#10+'Изменения запрещены!', mtError, [mbCancel], 0);
-    Exit;
-  end;
+  if not CheckActualDate then Exit;
 
 // Нельзя добавлять к "удаленным" объектам
   if (TreeList.FocusedNode.Values[trDateExpired] <> Null) then
@@ -677,17 +610,8 @@ begin
   aNewName := InputBox(LevelNames.Strings[aLevel-1], 'Введите новое значенние: ', '');
   if aNewName > '' then
   begin
-    TempQuery := TADOQuery.Create(Self);
-    try
-      TempQuery.Close;
-      TempQuery.SQL.Clear;
-      TempQuery.Connection := DataModule2.DB;
-      TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'')',
-        [GUIDToString(aGUID), IntToStr(aLevel), aNewName]));
-      TempQuery.ExecSQL;
-    finally
-      TempQuery.Free;
-    end;
+    ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'')',
+               [GUIDToString(aGUID), IntToStr(aLevel), aNewName]));
 
 // Обновление дерева
     TreeListReOpen(TreeList, 'GUID', aGUID);
@@ -699,16 +623,11 @@ var
   aGUID: TGUID;
   aLevel: integer;
   aNewName: string;
-  TempQuery: TADOQuery;
 begin
 // Экшн "Добавление дочернего объекта к текущей записи"
 
 // Нельзя изменять, если актуальная дата меньше текущей
-  if (ActualDate.Date < Trunc(Now)) then
-  begin
-    MessageDlg('Актуальная дата меньше текущей.'+#13#10+'Изменения запрещены!', mtError, [mbCancel], 0);
-    Exit;
-  end;
+  if not CheckActualDate then Exit;
 
 // Нельзя добавлять потомков к "удаленным" объектам
   if (TreeList.FocusedNode.Values[trDateExpired] <> Null) then
@@ -730,17 +649,8 @@ begin
   aNewName := InputBox(LevelNames.Strings[aLevel], 'Введите новое значенние: ', '');
   if aNewName > '' then
   begin
-    TempQuery := TADOQuery.Create(Self);
-    try
-      TempQuery.Close;
-      TempQuery.SQL.Clear;
-      TempQuery.Connection := DataModule2.DB;
-      TempQuery.SQL.Add(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'', ''%s'')',
-        [GUIDToString(aGUID), TreeList.FocusedNode.Values[trGUID], IntToStr(aLevel+1), aNewName]));
-      TempQuery.ExecSQL;
-    finally
-      TempQuery.Free;
-    end;
+    ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'', ''%s'')',
+               [GUIDToString(aGUID), TreeList.FocusedNode.Values[trGUID], IntToStr(aLevel+1), aNewName]));
 
 // Обновление дерева
     TreeListReOpen(TreeList, 'GUID', aGUID);
@@ -752,11 +662,7 @@ begin
 // Экшн "Удаление записи"
 
 // Нельзя изменять, если актуальная дата меньше текущей
-  if (ActualDate.Date < Trunc(Now)) then
-  begin
-    MessageDlg('Актуальная дата меньше текущей.'+#13#10+'Изменения запрещены!', mtError, [mbCancel], 0);
-    Exit;
-  end;
+  if not CheckActualDate then Exit;
 
   if MessageDlg('Удалить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
 
@@ -772,11 +678,7 @@ begin
 // Экшн "Восстановление записи"
 
 // Нельзя изменять, если актуальная дата меньше текущей
-  if (ActualDate.Date < Trunc(Now)) then
-  begin
-    MessageDlg('Актуальная дата меньше текущей.'+#13#10+'Изменения запрещены!', mtError, [mbCancel], 0);
-    Exit;
-  end;
+  if not CheckActualDate then Exit;
 
   if MessageDlg('Восстановить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
 
@@ -803,18 +705,13 @@ var
   aGUID, aNewGUID: TGUID;
   aLevel: integer;
   aName, aNewName: string;
-  TempQuery: TADOQuery;
 begin
 // Экшн "Редактирование"
 
   TreeList.BeginUpdate;
   try
   // Нельзя изменять, если актуальная дата меньше текущей
-    if (ActualDate.Date < Trunc(Now)) then
-    begin
-      MessageDlg('Актуальная дата меньше текущей.'+#13#10+'Изменения запрещены!', mtError, [mbCancel], 0);
-      Exit;
-    end;
+    if not CheckActualDate then Exit;
 
   // Нельзя изменять "удаленные" объекты
     if (TreeList.FocusedNode.Values[trDateExpired] <> Null) then
@@ -836,17 +733,8 @@ begin
         TreeMoveTo(aGUID, StringToGUID(TreeList.FocusedNode.Values[trGUID_Parent]), aNewGUID)
       else TreeMoveTo(aGUID, aNewGUID);
 
-      TempQuery := TADOQuery.Create(Self);
-      try
-        TempQuery.Close;
-        TempQuery.SQL.Clear;
-        TempQuery.Connection := DataModule2.DB;
-        TempQuery.SQL.Add(Format('UPDATE _OBJECTS SET NAME = ''%s'' WHERE GUID = ''%s'' AND DATEEXPIRED IS NULL',
-          [aNewName, GUIDToString(aNewGUID)]));
-        TempQuery.ExecSQL;
-      finally
-        TempQuery.Free;
-      end;
+      ExecuteSQL(Format('UPDATE _OBJECTS SET NAME = ''%s'' WHERE GUID = ''%s'' AND DATEEXPIRED IS NULL',
+                 [aNewName, GUIDToString(aNewGUID)]));
 
       TreeListReOpen(TreeList, 'GUID', aGUID);
     end;
@@ -919,42 +807,19 @@ begin
     DataModule2.DB.Execute('USE MASTER');
     DataModule2.DB.Execute('CREATE DATABASE DOVIDKA');
 
-  // Создание и наполнение таблиц находится в файле Tables.sql
+  // Создание и заполнение таблиц находится в файле Tables.sql
     ExecuteScriptFromFile('Tables.sql');
 
     DataModule2.DB.Execute('SET ANSI_NULLS ON');
     DataModule2.DB.Execute('SET QUOTED_IDENTIFIER ON');
 
   // Функции и триггеры создаются отдельно (в одной команде - один)
-{
-    DataModule2.DB.Execute
-    (
-      'CREATE TRIGGER [DBO].[InsertObjects] ON [DBO].[_Objects] After Insert '+
-      'AS '+
-      'BEGIN '+
-      '  SET NOCOUNT ON; '+
-      '  UPDATE DBO._OBJECTS SET UPDATED = CURRENT_TIMESTAMP '+
-      '    WHERE GUID IN (SELECT GUID FROM INSERTED); '+
-      'END '
-    );
-}
     DataModule2.DB.Execute
     (
       'CREATE TRIGGER [DBO].[UpdateObjects] ON [DBO].[_Objects] INSTEAD OF Update '+
       'AS '+
-//      'DECLARE @myid uniqueidentifier = NEWID(); '+
       'BEGIN '+
       '  SET NOCOUNT ON; '+
-{
-      '  UPDATE DBO._OBJECTS SET DATEEXPIRED = GETDATE(), UPDATED = CURRENT_TIMESTAMP '+
-      '    WHERE GUID IN (SELECT GUID FROM INSERTED WHERE DATEEXPIRED IS NULL); '+
-      '  INSERT INTO DBO._OBJECTS (GUID, GUID_PARENT, LEVEL, NAME, DATESTART, DATEEXPIRED) '+
-      '   	SELECT @myid, GUID_PARENT, LEVEL, NAME, GETDATE(), NULL FROM INSERTED WHERE DATEEXPIRED IS NULL; '+
-      '  UPDATE DBO._OBJECTS SET GUID_PARENT = @myid, UPDATED = CURRENT_TIMESTAMP '+
-      '	   WHERE GUID_PARENT IN (SELECT GUID FROM INSERTED WHERE DATEEXPIRED IS NULL); '+
-      '  UPDATE DBO._OBJECTS SET NAME = UPDATED = CURRENT_TIMESTAMP '+
-      '    WHERE GUID IN (SELECT GUID FROM INSERTED WHERE DATEEXPIRED IS NULL); '+
-}
       '  DECLARE @ID INT; '+
       '  DECLARE @NAME VARCHAR(255); '+
     	'  DECLARE _INSERTED CURSOR FOR '+
@@ -997,19 +862,6 @@ begin
       'END '
     );
 
-    DataModule2.DB.Execute
-    (
-      'Create Function [DBO].[Z](@data date) '+
-      'Returns Date '+
-      'as '+
-      'begin '+
-      '  declare @Ret date '+
-      '  set @Ret = @Data '+
-      '  if @Ret is NULL '+
-      '    Set @Ret = ''01/01/2200 '''+
-      '  Return(@Ret) '+
-      'end '
-    );
   except
     on E: EAdoError do
     begin
@@ -1042,7 +894,6 @@ var
   i, Num: integer;
   IniFile: TIniFile;
   Sections: TStrings;
-  TempDataSet: TADOQuery;
 begin
 // Экшн "Подключение к базе данных"
   DataModule2.DB.Connected := False;
@@ -1108,20 +959,13 @@ begin
   end;
 
 // Заполнение списка наименования уровней
-  TempDataSet := TADOQuery.Create(Self);
-  TempDataSet.Connection := DataModule2.DB;
+  with OpenSQL('SELECT ID, NAME FROM _LEVELS') do
+  while not EOF do
   try
-    TempDataSet.Close;
-    TempDataSet.SQL.Clear;
-    TempDataSet.SQL.Add('SELECT ID, NAME FROM _LEVELS');
-    TempDataSet.Open;
-    while not TempDataSet.EOF do
-    begin
-      LevelNames.Add(TempDataSet.FieldByName('NAME').Value);
-      TempDataSet.Next;
-    end;
+    LevelNames.Add(FieldByName('NAME').Value);
+    Next;
   finally
-    TempDataSet.Free;
+    Free;
   end;
 
 // Открытие главного запроса
@@ -1219,10 +1063,11 @@ begin
 // Перетаскивать можно только когда актуальная дата >= текущей, только на уровень выше
 // Для уровней ниже "Предприятие" нельзя претасиквать на "Местоположение"
 // "Удаленные" и на "удаленные" объекты перетасивать нельзя
+  if not CheckActualDate then Exit;
+
   Accept := (ActualDate.Date >= Trunc(Now)) and
             (Node.Values[trLevel] < DragNode.Values[trLevel]) and
             ((DragNode.Values[trLevel] = 2) or ((DragNode.Values[trLevel] > 2) and (Node.Values[trLevel] > 1))) and
-//            (IIF(VarIsNull(Node.Values[trDateExpired]), '', '01.01.2900') = '');
             (Node.Values[trDateExpired] = Null);
 
 end;
@@ -1236,7 +1081,6 @@ begin
     DragNode := TreeList.GetNodeAt(X, Y);
   // Перетаскивать можно только когда актуальная дата >= текущей
   // Удаленные объекты перетасивать нельзя
-//    if IIF(VarIsNull(DragNode.Values[trDateExpired]), '', '01.01.2900') = ''
     if (DragNode.Values[trDateExpired] = Null) and (ActualDate.Date >= Trunc(Now))
       then TreeList.BeginDrag(False, 10);
   end;

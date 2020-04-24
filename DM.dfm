@@ -3,7 +3,6 @@ object DataModule2: TDataModule2
   Height = 579
   Width = 1027
   object DB: TADOConnection
-    Connected = True
     ConnectionString = 
       'Provider=SQLOLEDB.1;Integrated Security=SSPI;Persist Security In' +
       'fo=False;Initial Catalog=dovidka;'
