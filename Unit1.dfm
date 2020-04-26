@@ -34,10 +34,12 @@ object Form1: TForm1
     Navigator.Buttons.CustomButtons = <>
     OptionsBehavior.ConfirmDelete = False
     OptionsCustomizing.BandsQuickCustomization = True
+    OptionsCustomizing.ColumnsQuickCustomization = True
     OptionsData.Editing = False
     OptionsData.Deleting = False
     OptionsView.CellAutoHeight = True
     OptionsView.ColumnAutoWidth = True
+    OptionsView.TreeLineStyle = tllsSolid
     PopupMenu = TreePopup
     RootValue = -1
     Styles.ContentEven = cxStyle7
@@ -46,7 +48,9 @@ object Form1: TForm1
     OnCustomDrawDataCell = TreeListCustomDrawDataCell
     OnDragDrop = TreeListDragDrop
     OnDragOver = TreeListDragOver
+    OnKeyDown = TreeListKeyDown
     OnMouseDown = TreeListMouseDown
+    ExplicitTop = 20
     object Treeid: TcxDBTreeListColumn
       Visible = False
       DataBinding.FieldName = 'id'
@@ -80,6 +84,7 @@ object Form1: TForm1
       Summary.GroupFooterSummaryItems = <>
     end
     object Treelevel: TcxDBTreeListColumn
+      Visible = False
       Caption.Text = #1059#1088#1086#1074'.'
       DataBinding.FieldName = 'level'
       Width = 20

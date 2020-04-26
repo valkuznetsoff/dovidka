@@ -125,6 +125,8 @@ type
     procedure DeleteBaseActionExecute(Sender: TObject);
     procedure CreateBaseActionExecute(Sender: TObject);
     procedure ConnectBaseActionExecute(Sender: TObject);
+    procedure TreeListKeyDown(Sender: TObject; var Key: Word;
+      Shift: TShiftState);
   private
     DragNode: TcxTreeListNode;
     PrevActualDate: TDate;
@@ -139,15 +141,15 @@ type
     function CheckActualDate: boolean;
     procedure ReCreateMainQuery;
 
-    procedure TreeDragTo(DragGUID, DropGUID: TGUID);
+    procedure TreeDragTo(DragGUID, DropGUID, NewGUID: TGUID);
 
     procedure TreeMoveTo(FromGUID, ToGUID, NewGUID: TGUID); overload;
     procedure TreeMoveTo(FromGUID, NewGUID: TGUID); overload;
 
     procedure TreeDelete(DeleteGUID: TGUID);
 
-    procedure TreeRestore(RestoreGUID: TGUID; RestoreLevel: integer; RestoreName: string); overload;
-    procedure TreeRestore(RestoreGUID, RestoreGUID_Parent: TGUID; RestoreLevel: integer; RestoreName: string); overload;
+    procedure TreeRestore(RestoreGUID: TGUID; RestoreLevel: integer; RestoreName: string; aNewGUID: TGUID); overload;
+    procedure TreeRestore(RestoreGUID, RestoreGUID_Parent: TGUID; RestoreLevel: integer; RestoreName: string; aNewGUID: TGUID); overload;
 
     procedure TreeListReOpen(aTreeList: TcxDBTreeList); overload;
     procedure TreeListReOpen(aTreeList: TcxDBTreeList; Key: string; Value: Integer); overload;
@@ -156,15 +158,6 @@ type
   public
     { Public declarations }
   end;
-
-const
-  trGUID = 1;
-  trGUID_Parent = 2;
-  trLevel = 3;
-  trName = 5;
-  trDateStart = 6;
-  trDateExpired = 7;
-  trUpdated = 8;
 
 var
   Form1: TForm1;
@@ -229,16 +222,16 @@ end;
 procedure TForm1.TreeListReOpen(aTreeList: TcxDBTreeList);
 begin
 // Переоткрытие датасета по умолчанию
-  TreeListReOpen(aTreeList, 'ID', aTreeList.DataController.DataSet.FieldByName('ID').AsInteger);
+  TreeListReOpen(aTreeList, 'ID', aTreeList.DataController.DataSource.DataSet.FieldByName('ID').AsInteger);
 end;
 
 procedure TForm1.TreeListReOpen(aTreeList: TcxDBTreeList; Key: string; Value: Integer);
 begin
 // Переоткрытие датасета по коду
-  with aTreeList.DataController do
+  with aTreeList.DataController.DataSource do
   begin
     DataSet.Close; DataSet.Open;
-    aTreeList.FullExpand; aTreeList.SetFocus;
+    aTreeList.SetFocus; aTreeList.FullExpand;
     DataSet.Locate(Key, Value, [loPartialKey]);
   end;
 end;
@@ -246,10 +239,10 @@ end;
 procedure TForm1.TreeListReOpen(aTreeList: TcxDBTreeList; Key: string; Value: TGUID);
 begin
 // Переоткрытие датасета по уникальному идентификатору
-  with aTreeList.DataController do
+  with aTreeList.DataController.DataSource do
   begin
     DataSet.Close; DataSet.Open;
-    aTreeList.FullExpand; aTreeList.SetFocus;
+    aTreeList.SetFocus; aTreeList.FullExpand;
     DataSet.Locate(Key, GUIDToString(Value), [loPartialKey]);
   end;
 end;
@@ -265,9 +258,9 @@ begin
 // Форматирование значения колонки "Изменено" в зависимости от "Актуальной даты"
   if SameText(AViewInfo.Column.Name, 'TreeUpdated') then
   begin
-    if AViewInfo.Node.Values[trUpdated] <> Null then
+    if AViewInfo.Node.Values[TreeList.GetColumnByFieldName('Updated').ItemIndex] <> Null then
     begin
-      if (Trunc(AViewInfo.Node.Values[trUpdated]) > ActualDate.Date) then
+      if (Trunc(AViewInfo.Node.Values[TreeList.GetColumnByFieldName('Updated').ItemIndex]) > ActualDate.Date) then
       begin
         aCanvas.Font.Color := clRed;
         aDone := False;
@@ -279,9 +272,9 @@ begin
 // Форматирование значения колонки "Дата кон." в зависимости от "Актуальной даты"
   if SameText(AViewInfo.Column.Name, 'TreeDateExpired') then
   begin
-    if AViewInfo.Node.Values[trDateExpired] <> Null then
+    if AViewInfo.Node.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> Null then
     begin
-      if (AViewInfo.Node.Values[trDateExpired] > ActualDate.Date) then
+      if (AViewInfo.Node.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] > ActualDate.Date) then
       begin
         aCanvas.Font.Color := clRed;
         aDone := False;
@@ -291,9 +284,9 @@ begin
   end;
 
 // Форматирование строки для "удаленных" записей
-  if (AViewInfo.Node.Values[trDateExpired] <> Null) then
+  if (AViewInfo.Node.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> Null) then
   begin
-    if (AViewInfo.Node.Values[trDateExpired] <= ActualDate.Date) then
+    if (AViewInfo.Node.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <= ActualDate.Date) then
     begin
       if TreeList.FocusedNode = AViewInfo.Node then
       begin
@@ -334,16 +327,15 @@ begin
   Result.Open;
 end;
 
-procedure TForm1.TreeDragTo(DragGUID, DropGUID: TGUID);
+procedure TForm1.TreeDragTo(DragGUID, DropGUID, NewGUID: TGUID);
 var
-  NewGUID: TGUID;
+  NewChildGUID: TGUID;
 begin
 // Рекурсивная процедура "перемещения" записей
 // Устанавливаем дату окончания для переносимого объекта
   ExecuteSQL(Format('DELETE FROM _OBJECTS WHERE GUID = ''%s''', [GUIDToString(DragGUID)]));
 
 // Добавляем новый объект к требуемому владельцу
-  CreateGUID(NewGUID);
   ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) '+
                     '  SELECT ''%s'', ''%s'', LEVEL, NAME FROM _OBJECTS WHERE GUID = ''%s''',
                     [GUIDToString(NewGUID), GUIDToString(DropGUID), GUIDToString(DragGUID)]));
@@ -354,7 +346,8 @@ begin
     while not EOF do
     begin
   // Рекурсия по всем дочерним объектам
-      TreeDragTo((FieldByName('GUID') as TGUIDField).AsGuid, NewGUID);
+      CreateGUID(NewChildGUID);
+      TreeDragTo((FieldByName('GUID') as TGUIDField).AsGuid, NewGUID, NewChildGUID);
       Next;
     end;
   finally
@@ -438,13 +431,12 @@ begin
   end;
 end;
 
-procedure TForm1.TreeRestore(RestoreGUID: TGUID; RestoreLevel: integer; RestoreName: string);
+procedure TForm1.TreeRestore(RestoreGUID: TGUID; RestoreLevel: integer; RestoreName: string; aNewGUID: TGUID);
 var
-  aNewGUID: TGUID;
+  aNewChildGUID: TGUID;
 begin
 // Рекурсивная процедура "восстановления" записей
 // Удаляем дату окончания для "восстанавливаемого" объекта
-  CreateGUID(aNewGUID);
   ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'')',
              [GUIDToString(aNewGUID), IntToStr(RestoreLevel), RestoreName]));
 
@@ -454,10 +446,12 @@ begin
     while not EOF do
     begin
   // Рекурсия по всем дочерним объектам
+      CreateGUID(aNewChildGUID);
       TreeRestore(aNewGuid,
                   (FieldByName('GUID') as TGUIDField).AsGuid,
                   FieldByName('Level').AsInteger,
-                  FieldByName('Name').AsString);
+                  FieldByName('Name').AsString,
+                  aNewChildGUID);
       Next;
     end;
   finally
@@ -465,13 +459,12 @@ begin
   end;
 end;
 
-procedure TForm1.TreeRestore(RestoreGUID, RestoreGUID_Parent: TGUID; RestoreLevel: integer; RestoreName: string);
+procedure TForm1.TreeRestore(RestoreGUID, RestoreGUID_Parent: TGUID; RestoreLevel: integer; RestoreName: string; aNewGUID: TGUID);
 var
-  aNewGUID: TGUID;
+  aNewChildGUID: TGUID;
 begin
 // Рекурсивная процедура "восстановления" записей
 // Удаляем дату окончания для удаляемого объекта
-  CreateGUID(aNewGUID);
   ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'', ''%s'')',
              [GUIDToString(aNewGUID), GUIDToString(RestoreGUID), IntToStr(RestoreLevel), RestoreName]));
 
@@ -481,10 +474,12 @@ begin
     while not EOF do
     begin
   // Рекурсия по всем дочерним объектам
-      TreeRestore(aNewGuid,
+      CreateGUID(aNewChildGUID);
+      TreeRestore(aNewGUID,
                   (FieldByName('GUID') as TGUIDField).AsGuid,
                   FieldByName('LEVEL').AsInteger,
-                  FieldByName('NAME').AsString);
+                  FieldByName('NAME').AsString,
+                  aNewChildGUID);
       Next;
     end;
   finally
@@ -589,15 +584,17 @@ begin
 // Нельзя изменять, если актуальная дата меньше текущей
   if not CheckActualDate then Exit;
 
+  if not Assigned(TreeList.FocusedNode) then TreeListReOpen(TreeList);
+
 // Нельзя добавлять к "удаленным" объектам
-  if (TreeList.FocusedNode.Values[trDateExpired] <> Null) then
+  if (TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> Null) then
   begin
     MessageDlg('Нельзя добавлять к удаленным объектам!', mtError, [mbCancel], 0);
     Exit;
   end;
 
   CreateGUID(aGUID);
-  aLevel := StrToInt(TreeList.FocusedNode.Values[trLevel]);
+  aLevel := StrToInt(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex]);
 
   aNewName := InputBox(LevelNames.Strings[aLevel-1], 'Введите новое значенние: ', '');
   if aNewName > '' then
@@ -621,14 +618,16 @@ begin
 // Нельзя изменять, если актуальная дата меньше текущей
   if not CheckActualDate then Exit;
 
+  if not Assigned(TreeList.FocusedNode) then TreeListReOpen(TreeList);
+
 // Нельзя добавлять потомков к "удаленным" объектам
-  if (TreeList.FocusedNode.Values[trDateExpired] <> Null) then
+  if (TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> Null) then
   begin
     MessageDlg('Нельзя добавлять потомков к удаленным объектам!', mtError, [mbCancel], 0);
     Exit;
   end;
 
-  aLevel := StrToInt(TreeList.FocusedNode.Values[trLevel]);
+  aLevel := StrToInt(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex]);
 
 // Нельзя добавлять потомков к уровню "Сотрудник"
   if (aLevel = 6) then
@@ -642,7 +641,7 @@ begin
   if aNewName > '' then
   begin
     ExecuteSQL(Format('INSERT INTO _OBJECTS (GUID, GUID_PARENT, LEVEL, NAME) VALUES (''%s'', ''%s'', ''%s'', ''%s'')',
-               [GUIDToString(aGUID), TreeList.FocusedNode.Values[trGUID], IntToStr(aLevel+1), aNewName]));
+               [GUIDToString(aGUID), TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex], IntToStr(aLevel+1), aNewName]));
 
 // Обновление дерева
     TreeListReOpen(TreeList, 'GUID', aGUID);
@@ -656,46 +655,68 @@ begin
 // Нельзя изменять, если актуальная дата меньше текущей
   if not CheckActualDate then Exit;
 
+  if not Assigned(TreeList.FocusedNode) then TreeListReOpen(TreeList);
+
 // Проверка на признак удаление записи
-  if TreeList.FocusedNode.Values[trDateExpired] <> NULL
+  if TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> NULL
     then MessageDlg('Нельзя удалить уже удаленный объект!', mtInformation, [mbCancel], 0)
 // Запуск рекурсивной процедуры "удаления" записей
     else
     begin
       if MessageDlg('Удалить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
 
-      TreeDelete(StringToGUID(TreeList.FocusedNode.Values[trGUID]));
+      TreeDelete(StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]));
 // Обновление дерева
-      TreeListReOpen(TreeList, 'GUID', StringToGUID(TreeList.FocusedNode.Values[trGUID]));
+      TreeListReOpen(TreeList, 'GUID', StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]));
     end;
 end;
 
 procedure TForm1.RestoreActionExecute(Sender: TObject);
+var
+  Node_Parent: TcxTreeListNode;
+  aNewGUID: TGUID;
 begin
 // Экшн "Восстановление записи"
 
 // Нельзя изменять, если актуальная дата меньше текущей
   if not CheckActualDate then Exit;
 
-  if MessageDlg('Восстановить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
+  if not Assigned(TreeList.FocusedNode) then TreeListReOpen(TreeList);
 
 // Проверка на признак удаление записи
-  if TreeList.FocusedNode.Values[trDateExpired] = NULL
+  if TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] = NULL
     then MessageDlg('Нельзя восстановить не удаленный объект!', mtInformation, [mbCancel], 0)
-// Запуск рекурсивной процедуры "восстановления" записей
     else
     begin
-      if TreeList.FocusedNode.Values[trGUID_Parent] = Null then
-        TreeRestore(StringToGUID(TreeList.FocusedNode.Values[trGUID]),
-                    TreeList.FocusedNode.Values[trLevel],
-                    TreeList.FocusedNode.Values[trName])
+// Проверка родительского объекта на "удаление"
+      if TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID_Parent').ItemIndex] <> Null then
+      begin
+        Node_Parent := TreeList.FindNodeByKeyValue(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID_Parent').ItemIndex]);
+        if Assigned(Node_Parent) then
+        begin
+          if Node_Parent.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> NULL then
+          begin
+            MessageDlg('Нельзя восстановить объект если родительский объект удален!', mtInformation, [mbCancel], 0);
+            Exit
+          end;
+        end;
+      end;
+
+      if MessageDlg('Восстановить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
+
+// Запуск рекурсивной процедуры "восстановления" записей
+      CreateGUID(aNewGUID);
+      if TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID_Parent').ItemIndex] = Null then
+        TreeRestore(StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]),
+                    TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex],
+                    TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Name').ItemIndex], aNewGUID)
       else
-        TreeRestore(StringToGUID(TreeList.FocusedNode.Values[trGUID_Parent]),
-                    StringToGUID(TreeList.FocusedNode.Values[trGUID]),
-                    TreeList.FocusedNode.Values[trLevel],
-                    TreeList.FocusedNode.Values[trName]);
+        TreeRestore(StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID_Parent').ItemIndex]),
+                    StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]),
+                    TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex],
+                    TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Name').ItemIndex], aNewGUID);
 // Обновление дерева
-      TreeListReOpen(TreeList, 'GUID', StringToGUID(TreeList.FocusedNode.Values[trGUID]));
+      TreeListReOpen(TreeList, 'GUID', aNewGUID);
     end;
 end;
 
@@ -710,30 +731,32 @@ begin
 // Нельзя изменять, если актуальная дата меньше текущей
   if not CheckActualDate then Exit;
 
+  if not Assigned(TreeList.FocusedNode) then TreeListReOpen(TreeList);
+
 // Нельзя изменять "удаленные" объекты
-  if (TreeList.FocusedNode.Values[trDateExpired] <> Null) then
+  if (TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> Null) then
   begin
     MessageDlg('Нельзя изменять удаленные объекты!', mtError, [mbCancel], 0);
     Exit;
   end;
 
-  aGUID := StringToGUID(TreeList.FocusedNode.Values[trGUID]);
-  aLevel := StrToInt(TreeList.FocusedNode.Values[trLevel]);
-  aName := TreeList.FocusedNode.Values[trName];
-  if TreeList.FocusedNode.Values[trDateExpired] <> NULL then Exit;
+  aGUID := StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]);
+  aLevel := StrToInt(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex]);
+  aName := TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('Name').ItemIndex];
+  if TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] <> NULL then Exit;
 
   aNewName := InputBox(LevelNames.Strings[aLevel-1], 'Введите новое значенние: ', aName);
   if aName <> aNewName then
   begin
     CreateGUID(aNewGUID);
-    if TreeList.FocusedNode.Values[trGUID_Parent] <> Null then
-      TreeMoveTo(aGUID, StringToGUID(TreeList.FocusedNode.Values[trGUID_Parent]), aNewGUID)
+    if TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID_Parent').ItemIndex] <> Null then
+      TreeMoveTo(aGUID, StringToGUID(TreeList.FocusedNode.Values[TreeList.GetColumnByFieldName('GUID_Parent').ItemIndex]), aNewGUID)
     else TreeMoveTo(aGUID, aNewGUID);
 
     ExecuteSQL(Format('UPDATE _OBJECTS SET NAME = ''%s'' WHERE GUID = ''%s'' AND DATEEXPIRED IS NULL',
                [aNewName, GUIDToString(aNewGUID)]));
 
-    TreeListReOpen(TreeList, 'GUID', aGUID);
+    TreeListReOpen(TreeList, 'GUID', aNewGUID);
   end;
 end;
 
@@ -1043,13 +1066,16 @@ end;
 procedure TForm1.TreeListDragDrop(Sender, Source: TObject; X, Y: Integer);
 var
   Node: TcxTreeListNode;
+  NewGUID: TGUID;
 begin
   Node := TreeList.GetNodeAt(X, Y);
 // Вставить перетаскиваемый объект со всеми потомками в требуемую позицию
 // Бывший перетаскиваемый объект при этом помечается как "удаленный"
-    TreeDragTo(StringToGUID(DragNode.Values[trGUID]), StringToGUID(Node.Values[trGUID]));
+  CreateGUID(NewGUID);
+  TreeDragTo(StringToGUID(DragNode.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]),
+             StringToGUID(Node.Values[TreeList.GetColumnByFieldName('GUID').ItemIndex]), NewGUID);
 // Обновление дерева
-    TreeListReOpen(TreeList, 'GUID', StringToGUID(Node.Values[trGUID]));
+  TreeListReOpen(TreeList, 'GUID', NewGUID);
 end;
 
 procedure TForm1.TreeListDragOver(Sender, Source: TObject; X, Y: Integer;
@@ -1067,10 +1093,9 @@ begin
   if not CheckActualDate then Exit;
 
   Accept := (ActualDate.Date >= Trunc(Now)) and
-            (Node.Values[trLevel] < DragNode.Values[trLevel]) and
-            ((DragNode.Values[trLevel] = 2) or ((DragNode.Values[trLevel] > 2) and (Node.Values[trLevel] > 1))) and
-            (Node.Values[trDateExpired] = Null);
-
+            (Node.Values[TreeList.GetColumnByFieldName('Level').ItemIndex] < DragNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex]) and
+            ((DragNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex] = 2) or ((DragNode.Values[TreeList.GetColumnByFieldName('Level').ItemIndex] > 2) and (Node.Values[TreeList.GetColumnByFieldName('Level').ItemIndex] > 1))) and
+            (Node.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] = Null);
 end;
 
 procedure TForm1.TreeListMouseDown(Sender: TObject; Button: TMouseButton;
@@ -1080,13 +1105,21 @@ begin
   if Button = mbLeft then
   begin
     DragNode := TreeList.GetNodeAt(X, Y);
+    if not Assigned(DragNode) then Exit;
+
   // Перетаскивать можно только когда актуальная дата >= текущей
   // Удаленные объекты перетасивать нельзя
-    if (DragNode.Values[trDateExpired] = Null) and (ActualDate.Date >= Trunc(Now))
-      then TreeList.BeginDrag(False, 10);
+    if (DragNode.Values[TreeList.GetColumnByFieldName('DateExpired').ItemIndex] = Null) and (ActualDate.Date >= Trunc(Now)) then
+      TreeList.BeginDrag(False, 10);
   end;
   // Нажата правая кнопка мыши - контекстное меню
   if Button = mbRight then TreePopup.Popup(Mouse.CursorPos.X, Mouse.CursorPos.Y);
+end;
+
+procedure TForm1.TreeListKeyDown(Sender: TObject; var Key: Word;
+  Shift: TShiftState);
+begin
+  if not Assigned(TreeList.FocusedNode) then TreeListReOpen(TreeList);
 end;
 
 end.
