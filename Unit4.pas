@@ -51,7 +51,7 @@ begin
   if FForm = nil then
     FForm := TForm4.Create(Application);
   Items:=TStringList.Create;
-  Items.LoadFromFile('d:\Dovidka\About.txt');
+  Items.LoadFromFile('About.txt');
   FForm.Description.Lines.Text := Items.Text;
   FForm.Show;
 end;

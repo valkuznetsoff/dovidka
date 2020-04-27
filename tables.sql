@@ -1,6 +1,3 @@
-USE [DOVIDKA]
---GO
-
 SET DATEFORMAT DMY;
 
 CREATE TABLE dbo._levels(
@@ -8,7 +5,6 @@ CREATE TABLE dbo._levels(
 	name varchar(255) default '',
 	PRIMARY KEY (id)
 );
---go
 
 CREATE TABLE dbo._objects(
 	id int identity(1,1) not null,
@@ -25,11 +21,9 @@ CREATE INDEX _objects_guid ON dbo._objects(guid)
 CREATE INDEX _objects_guid_parent ON dbo._objects(guid_parent)
 CREATE INDEX _objects_datestart ON dbo._objects(datestart)
 CREATE INDEX _objects_dateexpireed ON dbo._objects(dateexpired)
---go
 
 ALTER TABLE dbo._objects 
 	add constraint fk_level foreign key (level) references _levels(id)
---go
 
 insert into dbo._levels(name) values ( 'Местоположение');
 insert into dbo._levels(name) values ( 'Предприятие');
@@ -133,9 +127,3 @@ insert into dbo._objects(level, name) values( 6, 'Головин В.В.');
 insert into dbo._objects(level, name) values( 6, 'Бездомный А.С.');
 insert into dbo._objects(level, name) values( 6, 'Шутяев О.С.');
 insert into dbo._objects(level, name) values( 6, 'Большаков В.О.');
---go
-
-update dbo._objects set datestart = DATEADD(day, -FLOOR(RAND(CHECKSUM(NEWID()))*(200-0+1)+0), datestart);
---go
-update dbo._objects set updated = DATEADD(second, -FLOOR(RAND(CHECKSUM(NEWID()))*(50*86400-0+1)+0), current_timestamp);
---go

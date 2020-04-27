@@ -128,11 +128,11 @@ type
     procedure TreeListKeyDown(Sender: TObject; var Key: Word;
       Shift: TShiftState);
   private
+    MainDataBaseName: string;
     DragNode: TcxTreeListNode;
-    PrevActualDate: TDate;
     LevelNames: TStringList;
+    PrevActualDate: TDate;
 
-    procedure CheckDataBase;
     function DataBaseExists(DBName: string): boolean;
     procedure ExecuteScriptFromFile(aFileName: string);
     procedure ExecuteSQL(aSQL: string);
@@ -212,10 +212,10 @@ begin
         end;
       end;
     finally
-      IniFile.Free;
+      Items.Free;
     end;
   finally
-    Items.Free;
+    IniFile.Free;
   end;
 end;
 
@@ -506,7 +506,7 @@ begin
 
   if not ShowDeletedAction.Checked then
     aSQL := aSQL +
-      '  and ((dateexpired is null) or ('''+FormatDateTime('MM.dd.yyyy', ActualDate.Date)+''' <= dateexpired)) ';
+      '  and ((dateexpired is null) or ('''+FormatDateTime('MM.dd.yyyy', ActualDate.Date)+''' < dateexpired)) ';
 
   aSQL := aSQL +
     'order by o.level, o.name';
@@ -779,22 +779,6 @@ begin
   end;
 end;
 
-procedure TForm1.CheckDataBase;
-begin
-// Установка видимости начального меню
-  if DataBaseExists('dovidka') then
-  begin
-    CreateBaseItem.Visible := False;
-    ConnectBaseItem.Visible := True;
-    DeleteBaseItem.Visible := True;
-  end else
-  begin
-    CreateBaseItem.Visible := True;
-    ConnectBaseItem.Visible := False;
-    DeleteBaseItem.Visible := False;
-  end;
-end;
-
 procedure TForm1.ExecuteScriptFromFile(aFileName: string);
 var
   aScriptList: TStrings;
@@ -817,12 +801,17 @@ end;
 procedure TForm1.CreateBaseActionExecute(Sender: TObject);
 begin
 // Экшн "Создание базы данных
+  MainDataBaseName := InputBox('База данных', 'Введите алиас базы данных: ', MainDataBaseName);
+
+  if MessageDlg('Создать базу данных '+MainDataBaseName+'?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
+
   DataModule2.DB.Connected := False;
   DataModule2.DB.ConnectionString := 'Provider=SQLOLEDB.1;Integrated Security=SSPI;Persist Security Info=False;Initial Catalog=master';
 
   try
     DataModule2.DB.Execute('USE MASTER');
-    DataModule2.DB.Execute('CREATE DATABASE DOVIDKA');
+    DataModule2.DB.Execute('CREATE DATABASE ' + MainDataBaseName);
+    DataModule2.DB.Execute('USE ' + MainDataBaseName);
 
   // Создание и заполнение таблиц находится в файле Tables.sql
     ExecuteScriptFromFile('Tables.sql');
@@ -900,10 +889,7 @@ begin
     end;
   end;
 
-  MessageDlg('База данных "dovidka" создана успешно!', mtInformation, [mbOk], 0);
-
-// Проверка базы данных и смена менюшек
-  CheckDataBase;
+  MessageDlg('База данных ' + MainDataBaseName + ' создана успешно!', mtInformation, [mbOk], 0);
 end;
 
 procedure TForm1.ConnectBaseActionExecute(Sender: TObject);
@@ -913,8 +899,10 @@ var
   Sections: TStrings;
 begin
 // Экшн "Подключение к базе данных"
+  MainDataBaseName := InputBox('База данных', 'Введите алиас базы данных: ', MainDataBaseName);
+
   DataModule2.DB.Connected := False;
-  DataModule2.DB.ConnectionString := 'Provider=SQLOLEDB.1;Integrated Security=SSPI;Persist Security Info=False;User ID=sa;Initial Catalog=dovidka;';
+  DataModule2.DB.ConnectionString := 'Provider=SQLOLEDB.1;Integrated Security=SSPI;Persist Security Info=False;User ID=sa;Initial Catalog='+MainDataBaseName;
 
   try
     DataModule2.DB.Connected := True;
@@ -989,19 +977,34 @@ begin
 
 // Открытие главного запроса
   DataModule2.Main.Open;
+
+// Сохраниение алияса базы данных
+  INIFile := TIniFile.Create(ChangeFileExt(ParamStr(0), '.INI'));
+  try
+    IniFile.WriteString('Main', 'DataBaseName', MainDataBaseName);
+  finally
+    IniFile.Free;
+  end;
+
+  Caption := Caption + ' - ' + MainDataBaseName;
 end;
 
 procedure TForm1.DeleteBaseActionExecute(Sender: TObject);
 begin
 // Экшн "Удаление базы данных"
+  MainDataBaseName := InputBox('База данных', 'Введите алиас базы данных: ', MainDataBaseName);
+
+  if MessageDlg('ВНИМАНИЕ!!!'+#13#10+#13#10+'База данных '+MainDataBaseName+' УДАЛИТСЯ НАВСЕГДА!'+#13#10+#13#10+'Удалить базу данных?',
+                mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
+
   DataModule2.DB.Connected := False;
   DataModule2.DB.ConnectionString := 'Provider=SQLOLEDB.1;Integrated Security=SSPI;Persist Security Info=False;User ID=sa;Initial Catalog=master;';
   DataModule2.DB.Connected := True;
 
   try
     DataModule2.DB.Execute('use master');
-    DataModule2.DB.Execute('alter database [dovidka] set single_user with rollback immediate');
-    DataModule2.DB.Execute('drop database dovidka');
+    DataModule2.DB.Execute('alter database ['+MainDataBaseName+'] set single_user with rollback immediate');
+    DataModule2.DB.Execute('drop database '+MainDataBaseName);
   except
     on E: EAdoError do
     begin
@@ -1023,15 +1026,22 @@ begin
     end;
   end;
   DataModule2.DB.Connected := False;
-  MessageDlg('База данных "dovidka" удалена успешно!', mtInformation, [mbOk], 0);
-
-// Проверка базы данных и смена менюшек
-  CheckDataBase;
+  MessageDlg('База данных ' + MainDataBaseName + ' удалена успешно!', mtInformation, [mbOk], 0);
 end;
 
 procedure TForm1.FormCreate(Sender: TObject);
+var
+  IniFile: TIniFile;
 begin
-// наименовния уровней
+// Инициализация наименования базы данных
+  INIFile := TIniFile.Create(ChangeFileExt(ParamStr(0), '.INI'));
+  try
+    MainDataBaseName := INIFile.ReadString('Main', 'DataBaseName', 'Dovidka');
+  finally
+    IniFile.Free;
+  end;
+
+// Наименования уровней
   LevelNames := TStringList.Create;
 
 // Смена менюшек
@@ -1046,9 +1056,6 @@ begin
   DeleteMenuItem.Visible := False;
   RestoreMenuItem.Visible := False;
   ShowDeletedMenuItem.Visible := False;
-
-// Проверка базы данных и смена менюшек
-  CheckDataBase;
 end;
 
 procedure TForm1.FormDestroy(Sender: TObject);
