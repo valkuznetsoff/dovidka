@@ -171,14 +171,6 @@ begin
   if Condition then Result := TrueValue else Result := FalseValue
 end;
 
-function ConnectToIniFile(aIniFileName: string): TIniFile;
-begin
-// Проверка на наличие файла в текущем каталоге и при необходимости
-// смена пути на 2 уровня назад, исключается "Win32\Debug"
-  if not FileExists(aIniFileName) then aIniFileName := '..\..\'+aIniFileName;
-  Result := TIniFile.Create(aIniFileName);
-end;
-
 function CreateMenuItem(Section: string): TMenuItem;
 var
   MenuItem: IMenuItem;
@@ -191,7 +183,7 @@ var
 begin
 // Динамическое создание менюшек dependency injection,
 // прописанных в файле Menus.Ini
-  IniFile := ConnectToIniFile('Menus.Ini');
+  IniFile := TIniFile.Create(ExtractFilePath(ParamStr(0))+'Menus.Ini');
   try
     Items := TStringList.Create;
     try
@@ -947,7 +939,7 @@ begin
 // RunTime меню для dependency injection
   Sections := TStringList.Create;
   try
-    IniFile := ConnectToIniFile('Menus.Ini');
+    IniFile := TIniFile.Create(ExtractFilePath(ParamStr(0))+'Menus.Ini');
     try
       IniFile.ReadSections(Sections);
     finally

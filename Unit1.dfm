@@ -50,7 +50,6 @@ object Form1: TForm1
     OnDragOver = TreeListDragOver
     OnKeyDown = TreeListKeyDown
     OnMouseDown = TreeListMouseDown
-    ExplicitTop = 20
     object Treeid: TcxDBTreeListColumn
       Visible = False
       DataBinding.FieldName = 'id'
