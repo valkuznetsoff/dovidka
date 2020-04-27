@@ -56,7 +56,7 @@ insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Мариуполь');
 insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Константиновка');
 insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Краматорск');
 insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Славянск');
-insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Норловка');
+insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Горловка');
 insert into dbo._objects(level, name) values( 1, 'Донецкая обл. г.Макеевка');
 insert into dbo._objects(level, name) values( 2, 'Ева');
 insert into dbo._objects(level, name) values( 2, 'АБТ Маркет');
