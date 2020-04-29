@@ -48,6 +48,7 @@ object Form1: TForm1
     OnDragOver = TreeListDragOver
     OnMouseDown = TreeListMouseDown
     object Treeid: TcxDBTreeListColumn
+      Visible = False
       DataBinding.FieldName = 'id'
       Width = 35
       Position.ColIndex = 0
@@ -57,6 +58,7 @@ object Form1: TForm1
       Summary.GroupFooterSummaryItems = <>
     end
     object Treeguid: TcxDBTreeListColumn
+      Visible = False
       Caption.Text = #1048#1076#1077#1085#1090#1080#1092#1080#1082#1072#1090#1086#1088
       DataBinding.FieldName = 'guid'
       Width = 125
@@ -67,6 +69,7 @@ object Form1: TForm1
       Summary.GroupFooterSummaryItems = <>
     end
     object Treeguid_parent: TcxDBTreeListColumn
+      Visible = False
       Caption.Text = #1048#1076#1077#1085#1090#1080#1092#1080#1082#1072#1090#1086#1088' '#1088#1086#1076#1080#1090'.'
       DataBinding.FieldName = 'guid_parent'
       Width = 125

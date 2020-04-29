@@ -360,9 +360,6 @@ begin
   finally
     Free;
   end;
-
-// Обновление дерева
-  TreeListReOpen(TreeList, 'GUID', NewGUID);
 end;
 
 procedure TForm1.TreeMoveTo(FromGUID, ToGUID, NewGUID: TGUID);
@@ -391,9 +388,6 @@ begin
   finally
     Free;
   end;
-
-// Обновление дерева
-  TreeListReOpen(TreeList, 'GUID', NewGUID);
 end;
 
 procedure TForm1.TreeMoveTo(FromGUID, NewGUID: TGUID);
@@ -422,9 +416,6 @@ begin
   finally
     Free;
   end;
-
-// Обновление дерева
-  TreeListReOpen(TreeList, 'GUID', NewGUID);
 end;
 
 procedure TForm1.TreeDelete(DeleteGUID: TGUID);
@@ -445,9 +436,6 @@ begin
   finally
     Free;
   end;
-
-// Обновление дерева
-  TreeListReOpen(TreeList, 'GUID', DeleteGUID);
 end;
 
 procedure TForm1.TreeRestore(RestoreGUID: TGUID; RestoreLevel: integer; RestoreName: string);
@@ -475,9 +463,6 @@ begin
   finally
     Free;
   end;
-
-// Обновление дерева
-  TreeListReOpen(TreeList, 'GUID', aNewGUID);
 end;
 
 procedure TForm1.TreeRestore(RestoreGUID, RestoreGUID_Parent: TGUID; RestoreLevel: integer; RestoreName: string);
@@ -505,9 +490,6 @@ begin
   finally
     Free;
   end;
-
-// Обновление дерева
-  TreeListReOpen(TreeList, 'GUID', aNewGUID);
 end;
 
 procedure TForm1.AboutActionExecute(Sender: TObject);
@@ -555,7 +537,6 @@ begin
     ID := TreeList.DataController.DataSet.FieldByName('ID').Value;
 
   ReCreateMainQuery;
-
 // Обновление дерева
   TreeListReOpen(TreeList, 'ID', ID);
 
@@ -586,7 +567,6 @@ begin
     ID := IIF(VarIsNull(TreeList.DataController.DataSet.FieldByName('ID').Value), 0, TreeList.DataController.DataSet.FieldByName('ID').Value);
 
   ReCreateMainQuery;
-
 // Обновление дерева
   TreeListReOpen(TreeList, 'ID', ID);
 end;
@@ -676,13 +656,18 @@ begin
 // Нельзя изменять, если актуальная дата меньше текущей
   if not CheckActualDate then Exit;
 
-  if MessageDlg('Удалить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
-
 // Проверка на признак удаление записи
   if TreeList.FocusedNode.Values[trDateExpired] <> NULL
     then MessageDlg('Нельзя удалить уже удаленный объект!', mtInformation, [mbCancel], 0)
 // Запуск рекурсивной процедуры "удаления" записей
-    else TreeDelete(StringToGUID(TreeList.FocusedNode.Values[trGUID]));
+    else
+    begin
+      if MessageDlg('Удалить записи?', mtConfirmation, [mbYes, mbNo], 0) = mrNo then Exit;
+
+      TreeDelete(StringToGUID(TreeList.FocusedNode.Values[trGUID]));
+// Обновление дерева
+      TreeListReOpen(TreeList, 'GUID', StringToGUID(TreeList.FocusedNode.Values[trGUID]));
+    end;
 end;
 
 procedure TForm1.RestoreActionExecute(Sender: TObject);
@@ -709,6 +694,8 @@ begin
                     StringToGUID(TreeList.FocusedNode.Values[trGUID]),
                     TreeList.FocusedNode.Values[trLevel],
                     TreeList.FocusedNode.Values[trName]);
+// Обновление дерева
+      TreeListReOpen(TreeList, 'GUID', StringToGUID(TreeList.FocusedNode.Values[trGUID]));
     end;
 end;
 
@@ -1060,7 +1047,9 @@ begin
   Node := TreeList.GetNodeAt(X, Y);
 // Вставить перетаскиваемый объект со всеми потомками в требуемую позицию
 // Бывший перетаскиваемый объект при этом помечается как "удаленный"
-  TreeDragTo(StringToGUID(DragNode.Values[trGUID]), StringToGUID(Node.Values[trGUID]));
+    TreeDragTo(StringToGUID(DragNode.Values[trGUID]), StringToGUID(Node.Values[trGUID]));
+// Обновление дерева
+    TreeListReOpen(TreeList, 'GUID', StringToGUID(Node.Values[trGUID]));
 end;
 
 procedure TForm1.TreeListDragOver(Sender, Source: TObject; X, Y: Integer;
@@ -1068,7 +1057,10 @@ procedure TForm1.TreeListDragOver(Sender, Source: TObject; X, Y: Integer;
 var
   Node: TcxTreeListNode;
 begin
+  Accept := False;
   Node := TreeList.GetNodeAt(X, Y);
+  if not Assigned(Node) then Exit;
+
 // Перетаскивать можно только когда актуальная дата >= текущей, только на уровень выше
 // Для уровней ниже "Предприятие" нельзя претасиквать на "Местоположение"
 // "Удаленные" и на "удаленные" объекты перетасивать нельзя
